@@ -1,10 +1,6 @@
 package com.legendaai
 
-import android.content.ContentResolver
 import android.content.Context
-import android.media.MediaExtractor
-import android.media.MediaFormat
-import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,29 +12,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
-import java.io.File
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 data class Caption(val start: Double, val end: Double, val text: String)
 
@@ -126,7 +111,7 @@ private fun LegendaApp(context: Context) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            else Text("Transcrever vídeo")
+                            else Text("Transcrever gratuitamente")
                         }
                     }
                 }
@@ -158,87 +143,6 @@ private fun LegendaApp(context: Context) {
                 Text("Transcrição local e gratuita, sem chave de API e sem cobrança por minuto. Exporta SRT; ainda não grava legendas animadas no MP4.", color = Color(0xFF8E9A88), fontSize = 10.sp)
             }
         }
-    }
-}
-
-private fun transcribeVideo(context: Context, uri: Uri, apiKey: String): List<Caption> {
-    val audio = extractAudio(context, uri)
-    try {
-        if (audio.length() > 24L * 1024 * 1024) error("O áudio extraído ultrapassa 24 MB. Use um vídeo mais curto.")
-        val client = OkHttpClient.Builder()
-            .callTimeout(5, TimeUnit.MINUTES)
-            .build()
-        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", "audio.m4a", audio.asRequestBody("audio/mp4".toMediaType()))
-            .addFormDataPart("model", "whisper-1")
-            .addFormDataPart("language", "pt")
-            .addFormDataPart("response_format", "verbose_json")
-            .build()
-        val request = Request.Builder()
-            .url("https://api.openai.com/v1/audio/transcriptions")
-            .header("Authorization", "Bearer $apiKey")
-            .post(body)
-            .build()
-        client.newCall(request).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val message = runCatching { JSONObject(raw).optJSONObject("error")?.optString("message") }.getOrNull()
-                error(message?.takeIf { it.isNotBlank() } ?: "API respondeu HTTP ${response.code}")
-            }
-            val json = JSONObject(raw)
-            val segments = json.optJSONArray("segments") ?: error("A API não retornou os trechos da fala.")
-            return (0 until segments.length()).mapNotNull { i ->
-                val s = segments.getJSONObject(i)
-                val text = s.optString("text").trim()
-                if (text.isBlank()) null else Caption(s.optDouble("start"), s.optDouble("end"), text)
-            }
-        }
-    } finally { audio.delete() }
-}
-
-private fun extractAudio(context: Context, uri: Uri): File {
-    val extractor = MediaExtractor()
-    val output = File(context.cacheDir, "legendaai_audio_${System.currentTimeMillis()}.m4a")
-    var muxer: MediaMuxer? = null
-    try {
-        extractor.setDataSource(context, uri, null)
-        var audioTrack = -1
-        var format: MediaFormat? = null
-        for (i in 0 until extractor.trackCount) {
-            val f = extractor.getTrackFormat(i)
-            if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                audioTrack = i
-                format = f
-                break
-            }
-        }
-        if (audioTrack < 0 || format == null) error("Este vídeo não contém uma faixa de áudio.")
-        extractor.selectTrack(audioTrack)
-        muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        val outTrack = muxer.addTrack(format)
-        muxer.start()
-        val bufferSize = maxOf(format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(65536), 1024 * 1024)
-        val buffer = java.nio.ByteBuffer.allocateDirect(bufferSize)
-        val info = android.media.MediaCodec.BufferInfo()
-        while (true) {
-            buffer.clear()
-            val size = extractor.readSampleData(buffer, 0)
-            if (size < 0) break
-            info.offset = 0
-            info.size = size
-            info.presentationTimeUs = extractor.sampleTime
-            info.flags = extractor.sampleFlags
-            muxer.writeSampleData(outTrack, buffer, info)
-            extractor.advance()
-        }
-        muxer.stop()
-        return output
-    } catch (e: Exception) {
-        output.delete()
-        throw e
-    } finally {
-        runCatching { muxer?.release() }
-        extractor.release()
     }
 }
 
