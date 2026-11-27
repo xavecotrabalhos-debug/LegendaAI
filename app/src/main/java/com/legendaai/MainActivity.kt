@@ -52,7 +52,6 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LegendaApp(context: Context) {
-    var apiKey by remember { mutableStateOf("") }
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var videoName by remember { mutableStateOf("Nenhum vídeo selecionado") }
     var captions by remember { mutableStateOf<List<Caption>>(emptyList()) }
@@ -65,7 +64,7 @@ private fun LegendaApp(context: Context) {
             videoUri = uri
             videoName = uri.lastPathSegment?.substringAfterLast('/') ?: "Vídeo selecionado"
             captions = emptyList()
-            status = "Vídeo carregado. Informe sua chave da API e toque em Transcrever."
+            status = "Vídeo carregado. Toque em Transcrever gratuitamente."
         }
     }
     val savePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
@@ -101,33 +100,19 @@ private fun LegendaApp(context: Context) {
                             Text("Selecionar vídeo")
                         }
                         HorizontalDivider(color = Color(0xFF354135))
-                        Text("2. Conecte a transcrição", fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = apiKey, onValueChange = { apiKey = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Chave da API OpenAI") },
-                            placeholder = { Text("sk-...") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions.Default,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFFB8F36B),
-                                focusedLabelColor = Color(0xFFB8F36B)
-                            )
-                        )
-                        Text("A chave é usada somente nesta solicitação e não é enviada ao repositório.", fontSize = 11.sp, color = Color(0xFF9EAA99))
+                        Text("2. Gere suas legendas", fontWeight = FontWeight.Bold)
+                        Text("Transcrição gratuita no próprio celular. O modelo é baixado uma vez e depois funciona offline.", fontSize = 12.sp, color = Color(0xFF9EAA99))
                         Button(
                             onClick = {
                                 val uri = videoUri
                                 if (uri == null) status = "Selecione um vídeo primeiro."
-                                else if (!apiKey.startsWith("sk-")) status = "Informe uma chave válida da API OpenAI."
                                 else {
                                     busy = true
                                     status = "Extraindo áudio e transcrevendo…"
                                     scope.launch {
                                         try {
                                             val result = withContext(Dispatchers.IO) {
-                                                transcribeVideo(context, uri, apiKey.trim())
+                                                OfflineTranscriber.transcribe(context, uri) { progress -> status = progress }
                                             }
                                             captions = result
                                             status = if (result.isEmpty()) "Nenhuma fala foi identificada." else "Pronto! ${result.size} trechos de legenda gerados."
@@ -170,7 +155,7 @@ private fun LegendaApp(context: Context) {
                     }
                 }
                 Text(status, color = Color(0xFFB8F36B), fontSize = 12.sp)
-                Text("A transcrição usa a API OpenAI e pode gerar custos na sua conta. O app exporta SRT; a aplicação visual da legenda no MP4 ainda não está incluída nesta versão.", color = Color(0xFF8E9A88), fontSize = 10.sp)
+                Text("Transcrição local e gratuita, sem chave de API e sem cobrança por minuto. Exporta SRT; ainda não grava legendas animadas no MP4.", color = Color(0xFF8E9A88), fontSize = 10.sp)
             }
         }
     }
